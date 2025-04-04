@@ -4,8 +4,9 @@ from langchain.embeddings import CacheBackedEmbeddings, OpenAIEmbeddings
 from langchain.storage import LocalFileStore
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.vectorstores import FAISS  # FAISS vs Chroma?
-
-import time
+from langchain.schema.runnable import RunnableLambda, RunnablePassthrough
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts import ChatPromptTemplate
 
 
 MESSAGES = "messages"
@@ -54,6 +55,27 @@ def paint_history():
         )
 
 
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+
+
+llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.1)
+
+
+prompt = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            """Answer the question using ONLY the following context.
+         If you don't know the answer, just say you don't know.
+         DON'T make anything up. 
+         
+         Context: {context}""",
+        ),
+        ("human", "{question}"),
+    ]
+)
+
 st.markdown(
     """
     Welcome! Use this chatbot to ask questions about your documents.
@@ -73,5 +95,15 @@ if file:
     message = st.chat_input("Ask anythin about your file...")
     if message:
         send_message(message=message, role="human")
+        chain = (
+            {
+                "context": retriever | RunnableLambda(format_docs),
+                "question": RunnablePassthrough(),
+            }
+            | prompt
+            | llm
+        )
+        response = chain.invoke(message)
+        send_message(response.content, "ai")
 else:
     st.session_state[MESSAGES] = []
