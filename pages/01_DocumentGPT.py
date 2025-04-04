@@ -7,6 +7,7 @@ from langchain.vectorstores import FAISS  # FAISS vs Chroma?
 from langchain.schema.runnable import RunnableLambda, RunnablePassthrough
 from langchain.chat_models import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
+from langchain.callbacks.base import BaseCallbackHandler
 
 
 MESSAGES = "messages"
@@ -39,11 +40,15 @@ def embed_file(file):
     return retriever
 
 
+def save_message(message, role):
+    st.session_state[MESSAGES].append({MESSAGES: message, ROLE: role})
+
+
 def send_message(message, role, save=True):
     with st.chat_message(role):
         st.markdown(message)
     if save:
-        st.session_state[MESSAGES].append({MESSAGES: message, ROLE: role})
+        save_message(message, role)
 
 
 def paint_history():
@@ -59,7 +64,27 @@ def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
 
-llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.1)
+class ChatCallbackHandler(BaseCallbackHandler):
+    def __init__(self):
+        self.message = ""
+
+    def on_llm_start(self, *args, **kwargs):
+        self.message_box = st.empty()
+
+    def on_llm_end(self, *args, **kwargs):
+        save_message(self.message, "ai")
+
+    def on_llm_new_token(self, token: str, *args, **kwargs):
+        self.message += token
+        self.message_box.markdown(self.message)
+
+
+llm = ChatOpenAI(
+    model_name="gpt-4o-mini",
+    temperature=0.1,
+    streaming=True,
+    callbacks=[ChatCallbackHandler()],
+)
 
 
 prompt = ChatPromptTemplate.from_messages(
@@ -103,7 +128,7 @@ if file:
             | prompt
             | llm
         )
-        response = chain.invoke(message)
-        send_message(response.content, "ai")
+        with st.chat_message("ai"):
+            response = chain.invoke(message)
 else:
     st.session_state[MESSAGES] = []
