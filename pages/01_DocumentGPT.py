@@ -6,13 +6,15 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain.vectorstores import FAISS  # FAISS vs Chroma?
 from langchain.schema.runnable import RunnableLambda, RunnablePassthrough
 from langchain.chat_models import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate
+from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.callbacks.base import BaseCallbackHandler
-
+from langchain.memory import ConversationSummaryBufferMemory
 
 MESSAGES = "messages"
 ROLE = "role"
-
+MEMORY = "memory"
+HUMAN = "human"
+AI = "ai"
 
 st.set_page_config(page_title="DocumentGPT", page_icon="📑")
 st.title("Document GPT")
@@ -86,6 +88,19 @@ llm = ChatOpenAI(
     callbacks=[ChatCallbackHandler()],
 )
 
+memory_llm = ChatOpenAI(
+    model_name="gpt-3.5-turbo",
+    temperature=0.1,
+)
+
+if MEMORY not in st.session_state:
+    st.session_state[MEMORY] = ConversationSummaryBufferMemory(
+        llm=memory_llm,
+        max_token_limit=300,
+        return_messages=True,
+    )
+
+memory = st.session_state[MEMORY]
 
 prompt = ChatPromptTemplate.from_messages(
     [
@@ -97,6 +112,7 @@ prompt = ChatPromptTemplate.from_messages(
          
          Context: {context}""",
         ),
+        MessagesPlaceholder(variable_name="history"),
         ("human", "{question}"),
     ]
 )
@@ -123,6 +139,9 @@ if file:
         chain = (
             {
                 "context": retriever | RunnableLambda(format_docs),
+                "history": RunnableLambda(
+                    lambda _: memory.load_memory_variables({})["history"]
+                ),
                 "question": RunnablePassthrough(),
             }
             | prompt
@@ -130,5 +149,6 @@ if file:
         )
         with st.chat_message("ai"):
             response = chain.invoke(message)
+            memory.save_context({"input": message}, {"output": response.content})
 else:
     st.session_state[MESSAGES] = []
