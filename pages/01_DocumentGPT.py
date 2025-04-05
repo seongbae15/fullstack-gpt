@@ -4,8 +4,10 @@ from langchain.embeddings import CacheBackedEmbeddings, OpenAIEmbeddings
 from langchain.storage import LocalFileStore
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.vectorstores import FAISS  # FAISS vs Chroma?
-
-import time
+from langchain.schema.runnable import RunnableLambda, RunnablePassthrough
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts import ChatPromptTemplate
+from langchain.callbacks.base import BaseCallbackHandler
 
 
 MESSAGES = "messages"
@@ -38,11 +40,15 @@ def embed_file(file):
     return retriever
 
 
+def save_message(message, role):
+    st.session_state[MESSAGES].append({MESSAGES: message, ROLE: role})
+
+
 def send_message(message, role, save=True):
     with st.chat_message(role):
         st.markdown(message)
     if save:
-        st.session_state[MESSAGES].append({MESSAGES: message, ROLE: role})
+        save_message(message, role)
 
 
 def paint_history():
@@ -53,6 +59,47 @@ def paint_history():
             save=False,
         )
 
+
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+
+
+class ChatCallbackHandler(BaseCallbackHandler):
+    def __init__(self):
+        self.message = ""
+
+    def on_llm_start(self, *args, **kwargs):
+        self.message_box = st.empty()
+
+    def on_llm_end(self, *args, **kwargs):
+        save_message(self.message, "ai")
+
+    def on_llm_new_token(self, token: str, *args, **kwargs):
+        self.message += token
+        self.message_box.markdown(self.message)
+
+
+llm = ChatOpenAI(
+    model_name="gpt-4o-mini",
+    temperature=0.1,
+    streaming=True,
+    callbacks=[ChatCallbackHandler()],
+)
+
+
+prompt = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            """Answer the question using ONLY the following context.
+         If you don't know the answer, just say you don't know.
+         DON'T make anything up. 
+         
+         Context: {context}""",
+        ),
+        ("human", "{question}"),
+    ]
+)
 
 st.markdown(
     """
@@ -73,5 +120,15 @@ if file:
     message = st.chat_input("Ask anythin about your file...")
     if message:
         send_message(message=message, role="human")
+        chain = (
+            {
+                "context": retriever | RunnableLambda(format_docs),
+                "question": RunnablePassthrough(),
+            }
+            | prompt
+            | llm
+        )
+        with st.chat_message("ai"):
+            response = chain.invoke(message)
 else:
     st.session_state[MESSAGES] = []
