@@ -266,8 +266,17 @@ if not docs:
         """
     )
 else:
-    start = st.button("Generate Quiz")
-
-    if start:
-        response = run_quiz_chain(docs)
-        st.write(response)
+    response = run_quiz_chain(docs)
+    with st.form("question_from"):
+        for question in response["questions"]:
+            st.write(question["question"])
+            value = st.radio(
+                "Select an Answer",
+                [answer["answer"] for answer in question["answers"]],
+                index=None,
+            )
+            if {"answer": value, "correct": True} in question["answers"]:
+                st.success("Correct")
+            elif value is not None:
+                st.error("Wrong")
+        button = st.form_submit_button()
