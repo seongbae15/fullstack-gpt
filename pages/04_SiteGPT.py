@@ -1,15 +1,37 @@
 import streamlit as st
 from langchain.document_loaders import SitemapLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 # from langchain.document_loaders import AsyncChromiumLoader
 # from langchain.document_transformers import Html2TextTransformer
 
 
+def parse_page(soup):
+    header = soup.find("header")
+    footer = soup.find("footer")
+    if header:
+        header.decompose()
+    if footer:
+        footer.decompose()
+    return str(soup).replace("\n", "")
+
+
 @st.cache_data(show_spinner="Loading website...")
 def load_website(url):
-    loader = SitemapLoader(url)
+    splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+        chunk_size=1000,
+        chunk_overlap=200,
+    )
+
+    loader = SitemapLoader(
+        url,
+        filter_urls=[
+            r"^(.*\/blog\/).*",
+        ],
+        parsing_function=parse_page,
+    )
     loader.requests_per_second = 2
-    return loader.load()
+    return loader.load_and_split(text_splitter=splitter)
 
 
 st.set_page_config(
