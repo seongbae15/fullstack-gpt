@@ -8,8 +8,8 @@ st.markdown(
     Welcome to FullstackGPT page!
     Here are the app I made:
     - [x] [DocumentGPT](/DocumentGPT)
-    - [ ] [PrivateGPT](/PrivateGPT)
-    - [ ] [QuizGPT](/QuizGPT)
+    - [x] [PrivateGPT](/PrivateGPT)
+    - [x] [QuizGPT](/QuizGPT)
     - [ ] [SiteGPT](/SiteGPT)
     - [ ] [MeetingGPT](/MeetingGPT)
     - [ ] [InvestorGPT](/InvestorGPT)
