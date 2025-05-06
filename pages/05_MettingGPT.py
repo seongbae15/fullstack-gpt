@@ -84,3 +84,21 @@ if video:
         status.update(label="Transcribing audio...")
         transcript_path = video_path.parent.joinpath(f"{video_path.stem}.txt")
         transcribe_chunks(chunk_dir, transcript_path)
+
+    trasnscript_tab, summaray_tab, qa_tab = st.tabs(
+        [
+            "Transcript",
+            "Summary",
+            "Q&A",
+        ]
+    )
+
+    with trasnscript_tab:
+        with open(transcript_path, "r") as f:
+            st.write(f.read())
+
+    with summaray_tab:
+        pass
+        # Refine chain.
+        # 1. make summary to a doc
+        # 2. Update context with this summary
