@@ -6,8 +6,25 @@ import math
 from tqdm import tqdm
 from glob import glob
 import openai
+from langchain.document_loaders import TextLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.prompts import ChatPromptTemplate
+from langchain.chat_models import ChatOpenAI
+from langchain.schema import StrOutputParser
+from langchain.storage import LocalFileStore
+from langchain.vectorstores.faiss import FAISS
+from langchain.embeddings import CacheBackedEmbeddings, OpenAIEmbeddings
 
 has_transcript = Path("./.cache/files/podcast.txt").exists()
+
+llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0.1,
+)
+splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+    chunk_size=1000,
+    chunk_overlap=200,
+)
 
 
 @st.cache_data()
@@ -45,6 +62,16 @@ def transcribe_chunks(chunk_dir, destination):
         with open(file, "rb") as audio_file, open(destination, "a") as text_file:
             transciprt = openai.Audio.transcribe("whisper-1", audio_file)
             text_file.write(transciprt["text"] + "\n")
+
+
+def embed_file(file_path: Path):
+    cache_dir = LocalFileStore(f"./.cache/embeddings/{file_path.stem}")
+    loader = TextLoader(file_path)
+    docs = loader.load_and_split(text_splitter=splitter)
+    embeddings = OpenAIEmbeddings()
+    cached_embeddings = CacheBackedEmbeddings.from_bytes_store(embeddings, cache_dir)
+    vectorstore = FAISS.from_documents(docs, cached_embeddings)
+    return vectorstore.as_retriever()
 
 
 st.set_page_config(
@@ -98,7 +125,59 @@ if video:
             st.write(f.read())
 
     with summaray_tab:
-        pass
         # Refine chain.
         # 1. make summary to a doc
         # 2. Update context with this summary
+
+        start = st.button("Generate Summary")
+        if start:
+            loader = TextLoader(transcript_path)
+
+            docs = loader.load_and_split(text_splitter=splitter)
+            first_summary_prompt = ChatPromptTemplate.from_template(
+                """
+                Write a concise summary of the following:
+                "{text}"
+                CONCISE SUMMARY: 
+                """
+            )
+            first_summary_chain = first_summary_prompt | llm | StrOutputParser()
+            summary = first_summary_chain.invoke(
+                {
+                    "text": docs[0].page_content,
+                }
+            )
+
+            refine_prompt = ChatPromptTemplate.from_template(
+                """
+                Your job is to produce a final summary.
+                We have provided an existing summary up to a certain point: {existing_summary}
+                We have the opportunity to refine the existing summary (only if needed) with some more context below.
+                ------------
+                {text}
+                ------------
+                Given the new context, refine the original summary
+                If the context isn't useful, RETURN the original summary.
+                SUMMARY:
+                """
+            )
+
+            refine_chain = refine_prompt | llm | StrOutputParser()
+
+            with st.status("Summarizing...") as status:
+                for i, doc in enumerate(docs[1:]):
+                    status.update(label=f"Processing doc {i+1}/{len(docs)-1}...")
+                    summary = refine_chain.invoke(
+                        {
+                            "existing_summary": summary,
+                            "text": doc.page_content,
+                        }
+                    )
+            st.write(summary)
+
+    with qa_tab:
+        retriever = embed_file(transcript_path)
+        docs = retriever.invoke(
+            "What is the most important thing which Peter Levels thinks"
+        )
+        st.write(docs)
